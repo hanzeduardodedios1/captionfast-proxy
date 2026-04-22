@@ -1,5 +1,6 @@
 import os
 import json
+import base64
 import logging
 import sys
 import pathlib
@@ -50,9 +51,13 @@ def _configure_google_credentials() -> None:
     gcp_json_key = os.getenv("GCP_JSON_KEY")
     if gcp_json_key:
         try:
-            parsed_credentials = json.loads(gcp_json_key)
-        except json.JSONDecodeError as exc:
-            raise RuntimeError("Invalid GCP_JSON_KEY: not valid JSON") from exc
+            decoded_key = base64.b64decode(gcp_json_key).decode("utf-8")
+            parsed_credentials = json.loads(decoded_key)
+        except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+            try:
+                parsed_credentials = json.loads(gcp_json_key)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError("Invalid GCP_JSON_KEY: not valid JSON") from exc
 
         temp_dir = pathlib.Path(
             os.getenv("TMPDIR") or os.getenv("TEMP") or "/tmp"
