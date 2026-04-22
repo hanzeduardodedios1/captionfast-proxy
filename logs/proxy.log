@@ -52,3 +52,27 @@ requests.exceptions.MissingSchema: Invalid URL 'None': No scheme supplied. Perha
 2026-04-22 10:37:26,824 | INFO | captionfast_proxy | Sending to Google Vision
 2026-04-22 10:37:27,502 | INFO | captionfast_proxy | Vision response extracted text: John Doe
 Thin
+2026-04-22 11:30:40,538 | INFO | captionfast_proxy | Proxy starting on 8002
+2026-04-22 11:31:15,682 | INFO | captionfast_proxy | API key check: pass
+2026-04-22 11:31:15,683 | INFO | captionfast_proxy | /api/v1/scan received: filename=vertical.jpg, content_type=image/jpeg, file_size_bytes=98307
+2026-04-22 11:31:15,683 | INFO | captionfast_proxy | Sending to Google Vision
+2026-04-22 11:31:16,158 | INFO | captionfast_proxy | Vision response extracted text: John Doe
+Thin
+2026-04-22 11:37:04,803 | INFO | captionfast_proxy | API key check: pass
+2026-04-22 11:37:04,804 | INFO | captionfast_proxy | /api/v1/scan received: filename=vertical.jpg, content_type=image/jpeg, file_size_bytes=98307
+2026-04-22 11:37:04,804 | INFO | captionfast_proxy | Sending to Google Vision
+2026-04-22 11:37:05,181 | INFO | captionfast_proxy | Vision response extracted text: John Doe
+Thin
+2026-04-22 11:53:58,966 | INFO | captionfast_proxy | Configured Google credentials from local file.
+2026-04-22 11:53:59,244 | INFO | captionfast_proxy | Configured Google credentials from local file.
+2026-04-22 11:53:59,288 | INFO | captionfast_proxy | Proxy starting on 8002
+2026-04-22 11:54:34,788 | INFO | captionfast_proxy | Configured Google credentials from local file.
+2026-04-22 11:54:34,993 | INFO | captionfast_proxy | Configured Google credentials from local file.
+2026-04-22 11:54:35,034 | INFO | captionfast_proxy | Proxy starting on 8002
+2026-04-22 11:57:25,727 | INFO | captionfast_proxy | Configured Google credentials from local file.
+2026-04-22 11:57:25,803 | INFO | captionfast_proxy | Proxy starting on 8002
+2026-04-22 11:57:40,519 | INFO | captionfast_proxy | API key check: pass
+2026-04-22 11:57:40,520 | INFO | captionfast_proxy | /api/v1/scan received: filename=vertical.jpg, content_type=image/jpeg, file_size_bytes=98307
+2026-04-22 11:57:40,520 | INFO | captionfast_proxy | Sending to Google Vision
+2026-04-22 11:57:40,945 | INFO | captionfast_proxy | Vision response extracted text: John Doe
+Thin

@@ -1,7 +1,9 @@
 import os
+import json
 import logging
 import sys
-from pathlib import Path
+import pathlib
+from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Header, HTTPException, UploadFile
@@ -9,17 +11,14 @@ from google.cloud import vision
 
 load_dotenv()
 
-client = vision.ImageAnnotatorClient()
-
-app = FastAPI(title="CaptionFast Local Backend")
 LOGGER_NAME = "captionfast_proxy"
 logger = logging.getLogger(LOGGER_NAME)
 
 
-def _runtime_base_dir() -> Path:
+def _runtime_base_dir() -> pathlib.Path:
     if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
-    return Path.cwd()
+        return pathlib.Path(sys.executable).resolve().parent
+    return pathlib.Path.cwd()
 
 
 def _configure_logging() -> None:
@@ -44,6 +43,44 @@ def _configure_logging() -> None:
 
 
 _configure_logging()
+client: vision.ImageAnnotatorClient | None = None
+
+
+def _configure_google_credentials() -> None:
+    gcp_json_key = os.getenv("GCP_JSON_KEY")
+    if gcp_json_key:
+        try:
+            parsed_credentials = json.loads(gcp_json_key)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("Invalid GCP_JSON_KEY: not valid JSON") from exc
+
+        temp_dir = pathlib.Path(
+            os.getenv("TMPDIR") or os.getenv("TEMP") or "/tmp"
+        )
+        temp_credentials_path = temp_dir / "google-credentials.json"
+        temp_credentials_path.write_text(
+            json.dumps(parsed_credentials), encoding="utf-8"
+        )
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(temp_credentials_path)
+        logger.info("Configured Google credentials from GCP_JSON_KEY.")
+        return
+
+    local_credentials_path = _runtime_base_dir() / "google-credentials.json"
+    if local_credentials_path.exists():
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(local_credentials_path)
+        logger.info("Configured Google credentials from local file.")
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    global client
+    _configure_google_credentials()
+    client = vision.ImageAnnotatorClient()
+    logger.info("Proxy starting on %s", int(os.environ.get("PORT", 8002)))
+    yield
+
+
+app = FastAPI(title="CaptionFast Local Backend", lifespan=lifespan)
 
 
 def _validate_api_key(x_api_key: str | None) -> None:
@@ -61,11 +98,6 @@ def _validate_api_key(x_api_key: str | None) -> None:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     logger.info("API key check: pass")
-
-
-@app.on_event("startup")
-async def on_startup() -> None:
-    logger.info("Proxy starting on 8002")
 
 
 @app.post("/api/v1/scan")
@@ -92,6 +124,8 @@ async def scan_image(
     try:
         logger.info("Sending to Google Vision")
         image = vision.Image(content=image_bytes)
+        if client is None:
+            raise HTTPException(status_code=500, detail="Vision client is not initialized.")
         vision_response = client.document_text_detection(image=image)
     except Exception as exc:
         logger.exception("Exception while calling Vision API")
@@ -110,3 +144,13 @@ async def scan_image(
     extracted_text = annotations[0].description.strip()
     logger.info("Vision response extracted text: %s", extracted_text)
     return {"status": "success", "text": extracted_text}
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 8002)),
+    )
