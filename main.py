@@ -5,10 +5,15 @@ import logging
 import sys
 import pathlib
 from contextlib import asynccontextmanager
+from typing import Any
 
+import sentry_sdk
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import FastAPI, File, Header, HTTPException, Request, UploadFile
 from google.cloud import vision
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 load_dotenv()
 
@@ -85,7 +90,100 @@ async def lifespan(_: FastAPI):
     yield
 
 
+sentry_sdk.init(
+    dsn="https://5bea4f78c65e2dbf04a77d7dcd6ff969@o4511417797836800.ingest.us.sentry.io/4511417801441280",
+    traces_sample_rate=1.0,
+)
+
+limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="CaptionFast Local Backend", lifespan=lifespan)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Words at or above this fraction of the tallest annotation are treated as the VIP name.
+NAME_HEIGHT_THRESHOLD_RATIO = 0.75
+
+
+def _vertex_coord(vertex: object, axis: str) -> int:
+    return int(getattr(vertex, axis, 0) or 0)
+
+
+def _bounding_box_height(vertices: object) -> float:
+    """Approximate text height from bounding_poly Y extent."""
+    ys = [_vertex_coord(vertex, "y") for vertex in vertices]
+    if not ys:
+        return 0.0
+    return float(max(ys) - min(ys))
+
+
+def _extract_name_from_annotations(annotations: list[Any]) -> str:
+    """
+    Keep only the largest-font words on a badge (VIP name), dropping titles/company lines.
+    """
+    if not annotations:
+        return ""
+
+    word_entries: list[tuple[str, float, int, int]] = []
+    for annotation in annotations[1:]:
+        text = (annotation.description or "").strip()
+        if not text:
+            continue
+
+        vertices = annotation.bounding_poly.vertices
+        height = _bounding_box_height(vertices)
+        min_x = min((_vertex_coord(v, "x") for v in vertices), default=0)
+        min_y = min((_vertex_coord(v, "y") for v in vertices), default=0)
+        word_entries.append((text, height, min_x, min_y))
+
+    if not word_entries:
+        fallback = (annotations[0].description or "").strip()
+        logger.info(
+            "Badge OCR: no per-word annotations; using full block: %r",
+            fallback,
+        )
+        return fallback
+
+    max_height = max(height for _, height, _, _ in word_entries)
+    height_threshold = max_height * NAME_HEIGHT_THRESHOLD_RATIO
+
+    logger.info(
+        "Badge OCR height analysis: word_count=%s, max_height=%.1f, "
+        "threshold=%.1f (%.0f%% of max)",
+        len(word_entries),
+        max_height,
+        height_threshold,
+        NAME_HEIGHT_THRESHOLD_RATIO * 100,
+    )
+    for text, height, min_x, min_y in word_entries:
+        kept = height >= height_threshold
+        logger.info(
+            "  word=%r height=%.1f min_y=%s min_x=%s kept=%s",
+            text,
+            height,
+            min_y,
+            min_x,
+            kept,
+        )
+
+    filtered = [
+        (text, height, min_x, min_y)
+        for text, height, min_x, min_y in word_entries
+        if height >= height_threshold
+    ]
+    if not filtered:
+        logger.info(
+            "Badge OCR: no words met height threshold; falling back to tallest words only"
+        )
+        filtered = [
+            (text, height, min_x, min_y)
+            for text, height, min_x, min_y in word_entries
+            if height == max_height
+        ]
+
+    filtered.sort(key=lambda entry: (entry[3], entry[2]))
+    extracted = " ".join(text for text, _, _, _ in filtered)
+    logger.info("Badge OCR filtered result: %r", extracted)
+    return extracted
 
 
 def _validate_api_key(x_api_key: str | None) -> None:
@@ -106,7 +204,9 @@ def _validate_api_key(x_api_key: str | None) -> None:
 
 
 @app.post("/api/v1/scan")
+@limiter.limit("15/minute")
 async def scan_image(
+    request: Request,
     file: UploadFile = File(...),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> dict[str, str]:
@@ -146,8 +246,7 @@ async def scan_image(
     if not annotations:
         return {"status": "success", "text": ""}
 
-    extracted_text = annotations[0].description.strip()
-    logger.info("Vision response extracted text: %s", extracted_text)
+    extracted_text = _extract_name_from_annotations(annotations)
     return {"status": "success", "text": extracted_text}
 
 
