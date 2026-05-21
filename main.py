@@ -7,6 +7,7 @@ import pathlib
 from contextlib import asynccontextmanager
 from typing import Any
 
+import httpx
 import sentry_sdk
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Header, HTTPException, Request, UploadFile
@@ -186,6 +187,78 @@ def _extract_name_from_annotations(annotations: list[Any]) -> str:
     return extracted
 
 
+_LEMONSQUEEZY_VALIDATE_URL = "https://api.lemonsqueezy.com/v1/licenses/validate"
+_INACTIVE_LICENSE_STATUSES = frozenset({"inactive", "expired", "disabled"})
+
+
+async def _validate_lemonsqueezy_license(license_key: str) -> None:
+    """Validate a license key with LemonSqueezy before OCR."""
+    api_key = os.getenv("LEMONSQUEEZY_API_KEY", "").strip()
+    if not api_key:
+        logger.info("License check: fail (LEMONSQUEEZY_API_KEY missing)")
+        raise HTTPException(
+            status_code=500,
+            detail="Server misconfigured: LEMONSQUEEZY_API_KEY is not set.",
+        )
+
+    trimmed_key = license_key.strip()
+    if not trimmed_key:
+        raise HTTPException(
+            status_code=403,
+            detail="A valid license key is required.",
+        )
+
+    try:
+        async with httpx.AsyncClient(timeout=25.0) as client:
+            response = await client.post(
+                _LEMONSQUEEZY_VALIDATE_URL,
+                json={"license_key": trimmed_key},
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {api_key}",
+                },
+            )
+    except httpx.RequestError as exc:
+        logger.exception("License check: LemonSqueezy request failed")
+        raise HTTPException(
+            status_code=502,
+            detail=f"License validation unavailable: {exc}",
+        ) from exc
+
+    try:
+        body = response.json()
+    except json.JSONDecodeError as exc:
+        logger.exception("License check: invalid JSON from LemonSqueezy")
+        raise HTTPException(
+            status_code=502,
+            detail="License validation returned an invalid response.",
+        ) from exc
+
+    if not isinstance(body, dict):
+        raise HTTPException(
+            status_code=502,
+            detail="License validation returned an unexpected response.",
+        )
+
+    if body.get("valid") is not True:
+        error_message = body.get("error") or "License key is invalid."
+        logger.info("License check: fail (valid=false, error=%r)", error_message)
+        raise HTTPException(status_code=403, detail=str(error_message))
+
+    license_info = body.get("license_key")
+    if isinstance(license_info, dict):
+        status = str(license_info.get("status") or "").lower()
+        if status in _INACTIVE_LICENSE_STATUSES:
+            logger.info("License check: fail (status=%s)", status)
+            raise HTTPException(
+                status_code=403,
+                detail=f"License is {status}. Please renew or contact support.",
+            )
+
+    logger.info("License check: pass")
+
+
 def _validate_api_key(x_api_key: str | None) -> None:
     expected_api_key = os.getenv("PROXY_API_KEY")
 
@@ -209,8 +282,16 @@ async def scan_image(
     request: Request,
     file: UploadFile = File(...),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    x_license_key: str | None = Header(default=None, alias="X-License-Key"),
 ) -> dict[str, str]:
     _validate_api_key(x_api_key)
+
+    if not x_license_key or not x_license_key.strip():
+        raise HTTPException(
+            status_code=403,
+            detail="Missing X-License-Key header.",
+        )
+    await _validate_lemonsqueezy_license(x_license_key)
 
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Uploaded file must be an image.")
