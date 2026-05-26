@@ -188,7 +188,7 @@ def _extract_name_from_annotations(annotations: list[Any]) -> str:
 
 
 _LEMONSQUEEZY_VALIDATE_URL = "https://api.lemonsqueezy.com/v1/licenses/validate"
-_INACTIVE_LICENSE_STATUSES = frozenset({"inactive", "expired", "disabled"})
+_BLOCKED_LICENSE_STATUSES = frozenset({"expired", "disabled"})
 
 
 async def _validate_lemonsqueezy_license(license_key: str) -> None:
@@ -249,7 +249,7 @@ async def _validate_lemonsqueezy_license(license_key: str) -> None:
     license_info = body.get("license_key")
     if isinstance(license_info, dict):
         status = str(license_info.get("status") or "").lower()
-        if status in _INACTIVE_LICENSE_STATUSES:
+        if status in _BLOCKED_LICENSE_STATUSES:
             logger.info("License check: fail (status=%s)", status)
             raise HTTPException(
                 status_code=403,
