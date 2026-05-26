@@ -2,6 +2,7 @@ fastapi
 uvicorn
 python-multipart
 python-dotenv
+google-cloud-vision
 sentry-sdk
 slowapi
 httpx
