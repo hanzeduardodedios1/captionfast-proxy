@@ -250,10 +250,11 @@ async def _validate_lemonsqueezy_license(license_key: str) -> None:
     if isinstance(license_info, dict):
         status = str(license_info.get("status") or "").lower()
         if status in _BLOCKED_LICENSE_STATUSES:
+            detail = f"License is {status}. Please renew or contact support."
             logger.info("License check: fail (status=%s)", status)
             raise HTTPException(
                 status_code=403,
-                detail=f"License is {status}. Please renew or contact support.",
+                detail=detail,
             )
 
     logger.info("License check: pass")
@@ -268,6 +269,10 @@ def _validate_api_key(x_api_key: str | None) -> None:
             status_code=500,
             detail="Server misconfigured: PROXY_API_KEY is not set.",
         )
+
+    if x_api_key is None:
+        logger.info("API key check: fail (X-API-Key header missing)")
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
     if x_api_key != expected_api_key:
         logger.info("API key check: fail (incoming key mismatch)")
@@ -287,6 +292,7 @@ async def scan_image(
     _validate_api_key(x_api_key)
 
     if not x_license_key or not x_license_key.strip():
+        logger.info("Scan request: fail (missing X-License-Key header)")
         raise HTTPException(
             status_code=403,
             detail="Missing X-License-Key header.",
@@ -294,11 +300,15 @@ async def scan_image(
     await _validate_lemonsqueezy_license(x_license_key)
 
     if not file.content_type or not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="Uploaded file must be an image.")
+        detail = "Uploaded file must be an image."
+        logger.info("Scan request: fail (400): %s", detail)
+        raise HTTPException(status_code=400, detail=detail)
 
     image_bytes = await file.read()
     if not image_bytes:
-        raise HTTPException(status_code=400, detail="Uploaded image is empty.")
+        detail = "Uploaded image is empty."
+        logger.info("Scan request: fail (400): %s", detail)
+        raise HTTPException(status_code=400, detail=detail)
 
     logger.info(
         "/api/v1/scan received: filename=%s, content_type=%s, file_size_bytes=%s",
