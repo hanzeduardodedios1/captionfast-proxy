@@ -5,9 +5,9 @@
 ![Python](https://img.shields.io/badge/Python-3.14-3776AB?logo=python&logoColor=white)
 ![Rate Limit](https://img.shields.io/badge/Rate_Limit-15_min-FF6B6B)
 
-## The Hook
+## About
 
-Backend proxy for CaptionFast badge OCR. Accepts uploaded badge images from licensed desktop clients, validates LemonSqueezy license keys and API keys, and returns extracted VIP names via Google Cloud Vision document text detection.
+CaptionFast Proxy is the backend service for CaptionFast badge OCR. It accepts uploaded badge images from licensed desktop clients, validates LemonSqueezy license keys and API keys, and returns extracted VIP names via Google Cloud Vision document text detection.
 
 ## System Architecture
 
